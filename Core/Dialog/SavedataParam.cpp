@@ -63,6 +63,21 @@ static std::atomic<uint64_t> g_ff1TraceSaveNameListEntryCalls{0};
 static std::atomic<uint64_t> g_ff1TraceGetSaveInfoCalls{0};
 #endif
 
+#if defined(PPSSPP_FF1_SAVE_TRACE)
+static std::string FF1SaveTraceHex(const u8 *data, size_t size) {
+	static constexpr char hex[] = "0123456789abcdef";
+	std::string result;
+	result.reserve(size * 3);
+	for (size_t i = 0; i < size; i++) {
+		if (i != 0)
+			result.push_back(' ');
+		result.push_back(hex[data[i] >> 4]);
+		result.push_back(hex[data[i] & 0x0f]);
+	}
+	return result;
+}
+#endif
+
 static const std::string savePath = "ms0:/PSP/SAVEDATA/";
 
 namespace
@@ -1579,6 +1594,26 @@ int SavedataParam::SetPspParam(SceUtilitySavedataParam *param) {
 
 		// Get number of fileName in array
 		saveDataListCount = 0;
+#if defined(PPSSPP_FF1_SAVE_TRACE)
+		constexpr u32 traceListDumpSize = sizeof(SceUtilitySavedataSaveName) * 4;
+		const u32 traceListAddress = (u32)param->saveNameList.ptr;
+		const u32 traceListBytesAvailable = Memory::ClampValidSizeAt(traceListAddress, traceListDumpSize);
+		if (traceListBytesAvailable > 0) {
+			const u8 *traceListBytes = Memory::GetPointerRangeOrException(traceListAddress, traceListBytesAvailable);
+			if (traceListBytes) {
+				const std::string traceListHex = FF1SaveTraceHex(traceListBytes, traceListBytesAvailable);
+				INFO_LOG(Log::sceUtility,
+					"[FF1_SAVE_TRACE] event=save_name_list_raw timestamp_us=%llu thread_id=%d save_name_list_ptr=%08x mode=%u list_used_by_mode=%d raw_bytes=%u raw_hex=%s",
+					(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), traceListAddress,
+					(u32)param->mode, WouldHaveMultiSaveName(param) ? 1 : 0, traceListBytesAvailable, traceListHex.c_str());
+			}
+		} else {
+			INFO_LOG(Log::sceUtility,
+				"[FF1_SAVE_TRACE] event=save_name_list_raw timestamp_us=%llu thread_id=%d save_name_list_ptr=%08x mode=%u list_used_by_mode=%d raw_bytes=0 raw_hex=<invalid_range>",
+				(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), traceListAddress,
+				(u32)param->mode, WouldHaveMultiSaveName(param) ? 1 : 0);
+		}
+#endif
 		FF1_SAVE_TRACE_EVENT(g_ff1TraceSaveNameListScanCalls,
 			"[FF1_SAVE_TRACE] event=save_name_list_scan_begin timestamp_us=%llu thread_id=%d save_name_list_ptr=%08x mode=%u",
 			(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), (u32)param->saveNameList.ptr,
@@ -1588,11 +1623,14 @@ int SavedataParam::SetPspParam(SceUtilitySavedataParam *param) {
 			// path separators and bare dot components (path traversal).
 			const std::string_view entry = StringViewFromFixedSizeField(saveNameListData[saveDataListCount]);
 			if (saveDataListCount < 16 || saveDataListCount % 256 == 0) {
+#if defined(PPSSPP_FF1_SAVE_TRACE)
+				const std::string entryHex = FF1SaveTraceHex(reinterpret_cast<const u8 *>(saveNameListData[saveDataListCount]), sizeof(saveNameListData[saveDataListCount]));
+#endif
 				FF1_SAVE_TRACE_EVENT(g_ff1TraceSaveNameListEntryCalls,
-					"[FF1_SAVE_TRACE] event=save_name_list_entry timestamp_us=%llu thread_id=%d index=%d first_byte=%02x length=%d entry=%s",
+					"[FF1_SAVE_TRACE] event=save_name_list_entry timestamp_us=%llu thread_id=%d index=%d first_byte=%02x length=%d entry_hex=%s",
 					(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), saveDataListCount,
 					(unsigned int)(unsigned char)saveNameListData[saveDataListCount][0], (int)entry.size(),
-					std::string(entry).c_str());
+					entryHex.c_str());
 			}
 			if (HasPathTraversal(entry)) {
 				FF1_SAVE_TRACE_EVENT(g_ff1TraceSaveNameListEntryCalls,
