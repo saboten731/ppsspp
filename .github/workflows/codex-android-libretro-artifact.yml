@@ -1,0 +1,77 @@
+# Fork-only validation workflow. Keep this file out of upstream pull requests.
+name: Codex Android Libretro Artifact
+
+on:
+  push:
+    branches:
+      - actions
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android-libretro:
+    runs-on: ubuntu-26.04
+    steps:
+    - name: Check out source
+      uses: actions/checkout@v7
+      with:
+        submodules: recursive
+
+    - name: Set up Android NDK
+      uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
+      id: setup-ndk
+      with:
+        ndk-version: r29
+
+    - name: Set up ccache
+      uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
+      with:
+        key: codex-android-libretro-artifact
+
+    - name: Build Android arm64-v8a libretro core
+      env:
+        APP_ABI: arm64-v8a
+        CC: clang
+        CXX: clang++
+        NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
+        NDK_CCACHE: ccache
+        USE_CCACHE: 1
+      run: |
+        set -eu
+        export PATH="/usr/lib/ccache:$PATH"
+        export CCACHE_FILECLONE=true
+        export CCACHE_DEPEND=true
+        export CCACHE_COMPILERCHECK=content
+        ./b.sh --release --libretro_android ppsspp_libretro
+
+    - name: Strip and verify distribution core
+      env:
+        NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
+      run: |
+        set -eu
+        core_path="$(find build-android -type f -name 'ppsspp_libretro_android.so' -print -quit)"
+        test -n "$core_path"
+        llvm_strip="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+        llvm_readelf="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+        test -x "$llvm_strip"
+        test -x "$llvm_readelf"
+        "$llvm_strip" --strip-unneeded "$core_path"
+        mkdir -p artifact
+        cp "$core_path" artifact/ppsspp_libretro_android.so
+        file artifact/ppsspp_libretro_android.so
+        "$llvm_readelf" -h artifact/ppsspp_libretro_android.so | grep -E 'Class:|Machine:'
+        if "$llvm_readelf" -S artifact/ppsspp_libretro_android.so | grep -q '\.debug_'; then
+          echo 'Unexpected debug sections remain after stripping' >&2
+          exit 1
+        fi
+        stat -c '%n %s bytes' artifact/ppsspp_libretro_android.so
+        sha256sum artifact/ppsspp_libretro_android.so
+
+    - name: Upload distribution core
+      uses: actions/upload-artifact@v7
+      with:
+        name: ppsspp-libretro-android-arm64-vulkan-fast-forward
+        path: artifact/ppsspp_libretro_android.so
+        if-no-files-found: error
