@@ -1569,6 +1569,9 @@ void VulkanRenderManager::Finish() {
 
 void VulkanRenderManager::Present() {
 	int curFrame = vulkan_->GetCurFrame();
+	if (VulkanPresentation *presentation = vulkan_->GetPresentation()) {
+		presentation->BeginPresent();
+	}
 
 	VKRRenderThreadTask *task = new VKRRenderThreadTask(VKRRunType::PRESENT);
 	task->frame = curFrame;
@@ -1619,6 +1622,9 @@ void VulkanRenderManager::Run(VKRRenderThreadTask &task) {
 				outOfDateFrames_++;
 			}
 			frameData.skipSwap = false;
+		}
+		if (VulkanPresentation *presentation = vulkan_->GetPresentation()) {
+			presentation->EndPresent();
 		}
 		return;
 	}

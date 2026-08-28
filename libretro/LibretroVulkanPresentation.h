@@ -28,6 +28,8 @@ public:
 
 	VkResult AcquireNextImage(VulkanContext *vulkan, VkSemaphore signalSemaphore, uint32_t *imageIndex) override;
 	VkResult QueuePresent(VulkanContext *vulkan, VkQueue queue, uint32_t imageIndex, VkSemaphore waitSemaphore) override;
+	void BeginPresent() override;
+	void EndPresent() override;
 
 	uint32_t GetImageCount() const override { return (uint32_t)images_.size(); }
 	VkImage GetImage(uint32_t index) const override { return images_[index].image; }
@@ -62,6 +64,5 @@ private:
 
 	std::mutex mutex_;
 	std::condition_variable condVar_;
-	int currentIndex_ = -1;
-	bool everPresented_ = false;
+	bool presentPending_ = false;
 };
