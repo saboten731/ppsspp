@@ -1,0 +1,57 @@
+name: FF1 Savedata Fix Android Core
+
+on:
+  push:
+    branches:
+      - fix/savedata-unused-savename-list
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Android arm64-v8a savedata-fix core
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        submodules: recursive
+
+    - name: Setup Android NDK
+      uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
+      id: setup-ndk
+      with:
+        ndk-version: r29
+
+    - name: Build Android libretro core
+      shell: bash
+      env:
+        CC: clang
+        CXX: clang++
+        NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
+        APP_ABI: arm64-v8a
+      run: |
+        ./b.sh --release --libretro_android ppsspp_libretro
+
+        SO_PATH="$(find build -type f -name 'ppsspp_libretro_android.so' -print -quit)"
+        test -n "$SO_PATH"
+        mkdir -p artifact
+        cp "$SO_PATH" artifact/ppsspp_libretro_android.so
+
+        STRIP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+        test -x "$STRIP"
+        "$STRIP" --strip-unneeded artifact/ppsspp_libretro_android.so
+
+        file artifact/ppsspp_libretro_android.so
+        readelf -h artifact/ppsspp_libretro_android.so | grep -E 'Class:|Machine:|Type:'
+        stat -c 'size_bytes=%s' artifact/ppsspp_libretro_android.so
+        sha256sum artifact/ppsspp_libretro_android.so
+
+    - name: Upload Android core
+      uses: actions/upload-artifact@v7
+      with:
+        name: ppsspp-libretro-android-arm64-ff1-savedata-fix
+        path: artifact/ppsspp_libretro_android.so
+        if-no-files-found: error
