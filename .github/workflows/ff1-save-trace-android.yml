@@ -1,0 +1,58 @@
+name: FF1 Save Trace Android Core
+
+on:
+  push:
+    branches:
+      - investigate/libretro-ff1-save-hang
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Android arm64-v8a diagnostic core
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        submodules: recursive
+
+    - name: Setup Android NDK
+      uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
+      id: setup-ndk
+      with:
+        ndk-version: r29
+
+    - name: Build diagnostic core
+      shell: bash
+      env:
+        CC: clang
+        CXX: clang++
+        NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
+        APP_ABI: arm64-v8a
+        CXXFLAGS: -DPPSSPP_FF1_SAVE_TRACE
+      run: |
+        ./b.sh --release --libretro_android ppsspp_libretro
+
+        SO_PATH="$(find build-android -type f -name 'ppsspp_libretro_android.so' -print -quit)"
+        test -n "$SO_PATH"
+        cp "$SO_PATH" ppsspp_libretro_android_ff1_save_trace.so
+
+        STRIP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+        test -x "$STRIP"
+        "$STRIP" --strip-unneeded ppsspp_libretro_android_ff1_save_trace.so
+
+        file ppsspp_libretro_android_ff1_save_trace.so
+        readelf -h ppsspp_libretro_android_ff1_save_trace.so | grep -E 'Class:|Machine:|Type:'
+        strings -a ppsspp_libretro_android_ff1_save_trace.so | grep -F '[FF1_SAVE_TRACE]'
+        stat -c 'size_bytes=%s' ppsspp_libretro_android_ff1_save_trace.so
+        sha256sum ppsspp_libretro_android_ff1_save_trace.so
+
+    - name: Upload diagnostic core
+      uses: actions/upload-artifact@v7
+      with:
+        name: ppsspp-ff1-save-trace-android-arm64
+        path: ppsspp_libretro_android_ff1_save_trace.so
+        if-no-files-found: error
