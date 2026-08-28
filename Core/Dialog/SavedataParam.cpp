@@ -56,6 +56,10 @@ static std::atomic<uint64_t> g_ff1TraceGetListCalls{0};
 static std::atomic<uint64_t> g_ff1TraceGetFilesListCalls{0};
 static std::atomic<uint64_t> g_ff1TraceGetSizeCalls{0};
 static std::atomic<uint64_t> g_ff1TraceSetPspParamCalls{0};
+static std::atomic<uint64_t> g_ff1TraceSetPspParamEntryCalls{0};
+static std::atomic<uint64_t> g_ff1TraceClearCalls{0};
+static std::atomic<uint64_t> g_ff1TraceSaveNameListScanCalls{0};
+static std::atomic<uint64_t> g_ff1TraceSaveNameListEntryCalls{0};
 static std::atomic<uint64_t> g_ff1TraceGetSaveInfoCalls{0};
 #endif
 
@@ -1500,6 +1504,10 @@ bool SavedataParam::GetSize(SceUtilitySavedataParam *param) {
 }
 
 void SavedataParam::Clear() {
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceClearCalls,
+		"[FF1_SAVE_TRACE] event=savedata_clear_enter timestamp_us=%llu thread_id=%d save_data_list=%p save_data_list_count=%d save_name_list_data_count=%d no_save_icon=%p",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), (void *)saveDataList,
+		saveDataListCount, saveNameListDataCount, (void *)noSaveIcon);
 	if (saveDataList) {
 		for (int i = 0; i < saveNameListDataCount; i++) {
 			if (saveDataList[i].texture && (!noSaveIcon || saveDataList[i].texture != noSaveIcon->texture)) {
@@ -1522,6 +1530,11 @@ void SavedataParam::Clear() {
 }
 
 int SavedataParam::SetPspParam(SceUtilitySavedataParam *param) {
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceSetPspParamEntryCalls,
+		"[FF1_SAVE_TRACE] event=set_param_enter timestamp_us=%llu thread_id=%d param_present=%d mode=%u save_name_list_valid=%d save_name_list_ptr=%08x",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), param ? 1 : 0,
+		param ? (u32)param->mode : 0xFFFFFFFF, param ? (param->saveNameList.IsValid() ? 1 : 0) : 0,
+		param ? (u32)param->saveNameList.ptr : 0);
 	FF1_SAVE_TRACE_SCOPE("SavedataParam::SetPspParam", g_ff1TraceSetPspParamCalls, param, "");
 	pspParam = param;
 	if (!pspParam) {
@@ -1566,16 +1579,33 @@ int SavedataParam::SetPspParam(SceUtilitySavedataParam *param) {
 
 		// Get number of fileName in array
 		saveDataListCount = 0;
+		FF1_SAVE_TRACE_EVENT(g_ff1TraceSaveNameListScanCalls,
+			"[FF1_SAVE_TRACE] event=save_name_list_scan_begin timestamp_us=%llu thread_id=%d save_name_list_ptr=%08x mode=%u",
+			(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), (u32)param->saveNameList.ptr,
+			(u32)param->mode);
 		while (saveNameListData[saveDataListCount][0] != 0) {
 			// saveName entries become part of host filesystem paths; reject
 			// path separators and bare dot components (path traversal).
 			const std::string_view entry = StringViewFromFixedSizeField(saveNameListData[saveDataListCount]);
+			if (saveDataListCount < 16 || saveDataListCount % 256 == 0) {
+				FF1_SAVE_TRACE_EVENT(g_ff1TraceSaveNameListEntryCalls,
+					"[FF1_SAVE_TRACE] event=save_name_list_entry timestamp_us=%llu thread_id=%d index=%d first_byte=%02x length=%d entry=%s",
+					(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), saveDataListCount,
+					(unsigned int)(unsigned char)saveNameListData[saveDataListCount][0], (int)entry.size(),
+					std::string(entry).c_str());
+			}
 			if (HasPathTraversal(entry)) {
+				FF1_SAVE_TRACE_EVENT(g_ff1TraceSaveNameListEntryCalls,
+					"[FF1_SAVE_TRACE] event=save_name_list_rejected timestamp_us=%llu thread_id=%d index=%d reason=path_traversal",
+					(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), saveDataListCount);
 				ERROR_LOG(Log::sceUtility, "SavedataParam: invalid saveName in list: %s", std::string(entry).c_str());
 				return SCE_ERROR_UTILITY_INVALID_PARAM_SIZE;
 			}
 			saveDataListCount++;
 		}
+		FF1_SAVE_TRACE_EVENT(g_ff1TraceSaveNameListScanCalls,
+			"[FF1_SAVE_TRACE] event=save_name_list_scan_end timestamp_us=%llu thread_id=%d count=%d",
+			(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), saveDataListCount);
 
 		if (saveDataListCount > 0 && WouldHaveMultiSaveName(param)) {
 			hasMultipleFileName = true;

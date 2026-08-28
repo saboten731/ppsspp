@@ -56,6 +56,7 @@
 #include "Core/Dialog/PSPNetconfDialog.h"
 #include "Core/Dialog/PSPNpSigninDialog.h"
 #include "Core/Dialog/PSPScreenshotDialog.h"
+#include "Core/Dialog/FF1SaveTrace.h"
 
 #define PSP_AV_MODULE_AVCODEC     0
 #define PSP_AV_MODULE_SASCORE     1
@@ -170,6 +171,17 @@ static bool accessThreadFinished = true;
 static const char *accessThreadState = "initial";
 static int lastSaveStateVersion = -1;
 static int netParamLatestId = 1;
+
+#if defined(PPSSPP_FF1_SAVE_TRACE)
+static std::atomic<uint64_t> g_ff1TraceUtilityInitEnterCalls{0};
+static std::atomic<uint64_t> g_ff1TraceUtilityInitExitCalls{0};
+static std::atomic<uint64_t> g_ff1TraceUtilityShutdownEnterCalls{0};
+static std::atomic<uint64_t> g_ff1TraceUtilityShutdownExitCalls{0};
+static std::atomic<uint64_t> g_ff1TraceUtilityStatusEnterCalls{0};
+static std::atomic<uint64_t> g_ff1TraceUtilityStatusExitCalls{0};
+static std::atomic<uint64_t> g_ff1TraceUtilityUpdateEnterCalls{0};
+static std::atomic<uint64_t> g_ff1TraceUtilityUpdateExitCalls{0};
+#endif
 
 static void CleanupDialogThreads(bool force = false) {
 	if (accessThread) {
@@ -519,6 +531,10 @@ static int UtilityFinishDialog(int type) {
 }
 
 static int sceUtilitySavedataInitStart(u32 paramAddr) {
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceUtilityInitEnterCalls,
+		"[FF1_SAVE_TRACE] event=utility_init_enter timestamp_us=%llu thread_id=%d param_addr=%08x current_dialog_active=%d current_dialog_type=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), paramAddr,
+		currentDialogActive ? 1 : 0, (int)currentDialogType);
 	if (currentDialogActive && currentDialogType != UtilityDialogType::SAVEDATA) {
 		if (PSP_CoreParameter().compat.flags().YugiohSaveFix) {
 			WARN_LOG_REPORT(Log::sceUtility, "Yugioh Savedata Correction (state=%d)", lastSaveStateVersion);
@@ -540,26 +556,47 @@ static int sceUtilitySavedataInitStart(u32 paramAddr) {
 	// we should block until it's done?
 
 	ActivateDialog(UtilityDialogType::SAVEDATA);
-	return hleLogDebug(Log::sceUtility, saveDialog->Init(paramAddr));
+	int result = saveDialog->Init(paramAddr);
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceUtilityInitExitCalls,
+		"[FF1_SAVE_TRACE] event=utility_init_exit timestamp_us=%llu thread_id=%d param_addr=%08x result=%d current_dialog_active=%d current_dialog_type=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), paramAddr, result,
+		currentDialogActive ? 1 : 0, (int)currentDialogType);
+	return hleLogDebug(Log::sceUtility, result);
 }
 
 static int sceUtilitySavedataShutdownStart() {
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceUtilityShutdownEnterCalls,
+		"[FF1_SAVE_TRACE] event=utility_shutdown_enter timestamp_us=%llu thread_id=%d current_dialog_active=%d current_dialog_type=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(),
+		currentDialogActive ? 1 : 0, (int)currentDialogType);
 	if (currentDialogType != UtilityDialogType::SAVEDATA)
 		return hleLogWarning(Log::sceUtility, SCE_ERROR_UTILITY_WRONG_TYPE, "wrong dialog type");
 
 	DeactivateDialog();
 	int ret = saveDialog->Shutdown();
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceUtilityShutdownExitCalls,
+		"[FF1_SAVE_TRACE] event=utility_shutdown_exit timestamp_us=%llu thread_id=%d result=%d current_dialog_active=%d current_dialog_type=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), ret,
+		currentDialogActive ? 1 : 0, (int)currentDialogType);
 	hleEatCycles(30000);
 	return hleLogDebug(Log::sceUtility, ret);
 }
 
 static int sceUtilitySavedataGetStatus() {
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceUtilityStatusEnterCalls,
+		"[FF1_SAVE_TRACE] event=utility_status_enter timestamp_us=%llu thread_id=%d current_dialog_active=%d current_dialog_type=%d old_status=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(),
+		currentDialogActive ? 1 : 0, (int)currentDialogType, oldStatus);
 	if (currentDialogType != UtilityDialogType::SAVEDATA) {
 		hleEatCycles(200);
 		return hleLogDebug(Log::sceUtility, SCE_ERROR_UTILITY_WRONG_TYPE, "wrong dialog type");
 	}
 
 	const PSPDialog::DialogStatus status = saveDialog->GetStatus();
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceUtilityStatusExitCalls,
+		"[FF1_SAVE_TRACE] event=utility_status_exit timestamp_us=%llu thread_id=%d status=%d current_dialog_active=%d current_dialog_type=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), (int)status,
+		currentDialogActive ? 1 : 0, (int)currentDialogType);
 	hleEatCycles(200);
 	CleanupDialogThreads();
 	if (oldStatus != status) {
@@ -570,11 +607,19 @@ static int sceUtilitySavedataGetStatus() {
 }
 
 static int sceUtilitySavedataUpdate(int animSpeed) {
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceUtilityUpdateEnterCalls,
+		"[FF1_SAVE_TRACE] event=utility_update_enter timestamp_us=%llu thread_id=%d anim_speed=%d current_dialog_active=%d current_dialog_type=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), animSpeed,
+		currentDialogActive ? 1 : 0, (int)currentDialogType);
 	if (currentDialogType != UtilityDialogType::SAVEDATA || !saveDialog) {
 		return hleLogWarning(Log::sceUtility, SCE_ERROR_UTILITY_WRONG_TYPE, "wrong dialog type");
 	}
 
 	int result = hleLogDebug(Log::sceUtility, saveDialog->Update(animSpeed));
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceUtilityUpdateExitCalls,
+		"[FF1_SAVE_TRACE] event=utility_update_exit timestamp_us=%llu thread_id=%d anim_speed=%d result=%d current_dialog_active=%d current_dialog_type=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), animSpeed, result,
+		currentDialogActive ? 1 : 0, (int)currentDialogType);
 	if (result >= 0)
 		return hleDelayResult(result, "savedata update", 300);
 	return result;

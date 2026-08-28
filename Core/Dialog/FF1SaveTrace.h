@@ -17,6 +17,10 @@
 #include "Common/TimeUtil.h"
 #include "Core/Dialog/SavedataParam.h"
 
+inline bool FF1SaveTraceShouldLog(uint64_t callCount) {
+	return callCount <= 20 || callCount % 100 == 0;
+}
+
 class FF1SaveTraceScope {
 public:
 	FF1SaveTraceScope(const char *function, std::atomic<uint64_t> &counter, const SceUtilitySavedataParam *param, std::string_view context = {})
@@ -56,8 +60,15 @@ private:
 #define FF1_SAVE_TRACE_SCOPE(function, counter, param, context) \
 	FF1SaveTraceScope ff1SaveTraceScope##__LINE__(function, counter, param, context)
 
+#define FF1_SAVE_TRACE_EVENT(counter, ...) do { \
+	const uint64_t ff1TraceEventCount = (counter).fetch_add(1, std::memory_order_relaxed) + 1; \
+	if (FF1SaveTraceShouldLog(ff1TraceEventCount)) \
+		INFO_LOG(Log::sceUtility, __VA_ARGS__); \
+} while (false)
+
 #else
 
 #define FF1_SAVE_TRACE_SCOPE(function, counter, param, context) do { } while (false)
+#define FF1_SAVE_TRACE_EVENT(counter, ...) do { } while (false)
 
 #endif

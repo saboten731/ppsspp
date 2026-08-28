@@ -46,7 +46,16 @@ static double g_lastSaveTime = -1.0;
 
 #if defined(PPSSPP_FF1_SAVE_TRACE)
 static std::atomic<uint64_t> g_ff1TraceInitCalls{0};
+static std::atomic<uint64_t> g_ff1TraceInitEntryCalls{0};
+static std::atomic<uint64_t> g_ff1TraceInitCheckpointCalls{0};
 static std::atomic<uint64_t> g_ff1TraceUpdateCalls{0};
+static std::atomic<uint64_t> g_ff1TraceUpdateEntryCalls{0};
+static std::atomic<uint64_t> g_ff1TraceUpdateRequestSyncCalls{0};
+static std::atomic<uint64_t> g_ff1TraceUpdateButtonsCalls{0};
+static std::atomic<uint64_t> g_ff1TraceUpdateFadeCalls{0};
+static std::atomic<uint64_t> g_ff1TraceUpdateCommonCalls{0};
+static std::atomic<uint64_t> g_ff1TraceUpdateDispatchCalls{0};
+static std::atomic<uint64_t> g_ff1TraceUpdateExitCalls{0};
 static std::atomic<uint64_t> g_ff1TraceExecuteIOCalls{0};
 static std::atomic<uint64_t> g_ff1TraceExecuteNotVisibleCalls{0};
 #endif
@@ -121,6 +130,10 @@ PSPSaveDialog::~PSPSaveDialog() {
 }
 
 int PSPSaveDialog::Init(int paramAddr) {
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceInitEntryCalls,
+		"[FF1_SAVE_TRACE] event=dialog_init_enter timestamp_us=%llu thread_id=%d param_addr=%08x status=%d io_thread_joinable=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), paramAddr,
+		(int)GetStatus(), ioThread.joinable() ? 1 : 0);
 	FF1_SAVE_TRACE_SCOPE("PSPSaveDialog::Init", g_ff1TraceInitCalls, nullptr, "");
 	// Ignore if already running
 	if (GetStatus() != SCE_UTILITY_STATUS_NONE) {
@@ -142,6 +155,9 @@ int PSPSaveDialog::Init(int paramAddr) {
 	requestAddr = paramAddr;
 
 	int size = Memory::ReadUnchecked_U32(requestAddr);
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceInitCheckpointCalls,
+		"[FF1_SAVE_TRACE] event=dialog_init_header timestamp_us=%llu thread_id=%d request_addr=%08x request_size=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), requestAddr, size);
 	memset(&request, 0, sizeof(request));
 	// Only copy the right size to support different save request format
 	if (size != SAVEDATA_DIALOG_SIZE_V1 && size != SAVEDATA_DIALOG_SIZE_V2 && size != SAVEDATA_DIALOG_SIZE_V3) {
@@ -170,6 +186,9 @@ int PSPSaveDialog::Init(int paramAddr) {
 	if (HasPathTraversal(StringViewFromFixedSizeField(request.gameName)) ||
 		HasPathTraversal(StringViewFromFixedSizeField(request.saveName)) ||
 		HasPathTraversal(StringViewFromFixedSizeField(request.fileName))) {
+		FF1_SAVE_TRACE_EVENT(g_ff1TraceInitCheckpointCalls,
+			"[FF1_SAVE_TRACE] event=dialog_init_rejected timestamp_us=%llu thread_id=%d reason=path_traversal request_addr=%08x",
+			(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), requestAddr);
 		ERROR_LOG_REPORT(Log::sceUtility, "sceUtilitySavedataInitStart: path separator in name fields");
 		return SCE_ERROR_UTILITY_INVALID_PARAM_SIZE;
 	}
@@ -180,6 +199,10 @@ int PSPSaveDialog::Init(int paramAddr) {
 
 	const u32 mode = (u32)param.GetPspParam()->mode;
 	const char *modeName = mode < ARRAY_SIZE(utilitySavedataTypeNames) ? utilitySavedataTypeNames[mode] : "UNKNOWN";
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceInitCheckpointCalls,
+		"[FF1_SAVE_TRACE] event=dialog_init_after_set_param timestamp_us=%llu thread_id=%d return_value=%d mode=%s(%u) filename_count=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), retval, modeName, mode,
+		param.GetFilenameCount());
 	INFO_LOG(Log::sceUtility,"sceUtilitySavedataInitStart(%08x) - %s (%d)", paramAddr, modeName, mode);
 	INFO_LOG(Log::sceUtility,"sceUtilitySavedataInitStart(%08x) : Game key (hex): %s", paramAddr, param.GetKey(param.GetPspParam()).c_str());
 
@@ -220,6 +243,10 @@ int PSPSaveDialog::Init(int paramAddr) {
 
 	if (!param.WouldHaveMultiSaveName(param.GetPspParam()))
 		currentSelectedSave = 0;
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceInitCheckpointCalls,
+		"[FF1_SAVE_TRACE] event=dialog_init_after_focus timestamp_us=%llu thread_id=%d current_selected_save=%d filename_count=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), currentSelectedSave,
+		param.GetFilenameCount());
 
 	switch ((SceUtilitySavedataType)(u32)param.GetPspParam()->mode)
 	{
@@ -321,17 +348,33 @@ int PSPSaveDialog::Init(int paramAddr) {
 		}
 		break;
 	}
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceInitCheckpointCalls,
+		"[FF1_SAVE_TRACE] event=dialog_init_display timestamp_us=%llu thread_id=%d display=%d mode=%s(%u) return_value=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), (int)display, modeName, mode, retval);
 
 	if (retval < 0) {
 		ChangeStatusShutdown(SAVEDATA_SHUTDOWN_DELAY_US);
 	} else {
 		ChangeStatusInit(SAVEDATA_INIT_DELAY_US);
 	}
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceInitCheckpointCalls,
+		"[FF1_SAVE_TRACE] event=dialog_init_status timestamp_us=%llu thread_id=%d status=%d pending_status=%d return_value=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), (int)ReadStatus(),
+		(int)pendingStatus, retval);
 
 	param.ClearSFOCache();
 	InitCommon();
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceInitCheckpointCalls,
+		"[FF1_SAVE_TRACE] event=dialog_init_after_init_common timestamp_us=%llu thread_id=%d display=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), (int)display);
 	UpdateButtons();
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceInitCheckpointCalls,
+		"[FF1_SAVE_TRACE] event=dialog_init_after_update_buttons timestamp_us=%llu thread_id=%d display=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), (int)display);
 	StartFade(true);
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceInitCheckpointCalls,
+		"[FF1_SAVE_TRACE] event=dialog_init_after_start_fade timestamp_us=%llu thread_id=%d display=%d status=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), (int)display, (int)ReadStatus());
 
 	/*INFO_LOG(Log::sceUtility,"Dump Param :");
 	INFO_LOG(Log::sceUtility,"size : %d",param.GetPspParam()->common.size);
@@ -689,6 +732,10 @@ void PSPSaveDialog::DisplayMessage(std::string_view text, bool hasYesNo)
 
 int PSPSaveDialog::Update(int animSpeed) {
 	// Do not inspect the request before paramLock: SaveIO may be using it.
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceUpdateEntryCalls,
+		"[FF1_SAVE_TRACE] event=dialog_update_enter timestamp_us=%llu thread_id=%d anim_speed=%d status=%d pending_status=%d display=%d io_thread_status=%d request_addr=%08x",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), animSpeed, (int)GetStatus(),
+		(int)pendingStatus, (int)display, (int)ioThreadStatus, requestAddr);
 	FF1_SAVE_TRACE_SCOPE("PSPSaveDialog::Update", g_ff1TraceUpdateCalls, nullptr, "");
 	if (GetStatus() != SCE_UTILITY_STATUS_RUNNING)
 		return SCE_ERROR_UTILITY_INVALID_STATUS;
@@ -706,6 +753,9 @@ int PSPSaveDialog::Update(int animSpeed) {
 	// The struct may have been updated by the game.  This happens in "Where Is My Heart?"
 	// Check if it has changed, reload it.
 	// TODO: Cut down on preloading?  This rebuilds the list from scratch.
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceUpdateRequestSyncCalls,
+		"[FF1_SAVE_TRACE] event=dialog_update_before_request_sync timestamp_us=%llu thread_id=%d display=%d request_addr=%08x",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), (int)display, requestAddr);
 	int size = std::min((u32)sizeof(originalRequest), Memory::ReadUnchecked_U32(requestAddr));
 	const u8 *updatedRequest = Memory::GetPointerRangeOrException(requestAddr, size);
 	if (updatedRequest && memcmp(updatedRequest, &originalRequest, size) != 0) {
@@ -715,14 +765,33 @@ int PSPSaveDialog::Update(int animSpeed) {
 		std::lock_guard<std::mutex> guard(paramLock);
 		param.SetPspParam(&request);
 	}
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceUpdateRequestSyncCalls,
+		"[FF1_SAVE_TRACE] event=dialog_update_after_request_sync timestamp_us=%llu thread_id=%d display=%d request_size=%d request_pointer_valid=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), (int)display, size,
+		updatedRequest ? 1 : 0);
 
 	param.ClearSFOCache();
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceUpdateButtonsCalls,
+		"[FF1_SAVE_TRACE] event=dialog_update_before_update_buttons timestamp_us=%llu thread_id=%d display=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), (int)display);
 	UpdateButtons();
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceUpdateButtonsCalls,
+		"[FF1_SAVE_TRACE] event=dialog_update_after_update_buttons timestamp_us=%llu thread_id=%d display=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), (int)display);
 	UpdateFade(animSpeed);
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceUpdateFadeCalls,
+		"[FF1_SAVE_TRACE] event=dialog_update_after_update_fade timestamp_us=%llu thread_id=%d display=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), (int)display);
 
 	UpdateCommon();
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceUpdateCommonCalls,
+		"[FF1_SAVE_TRACE] event=dialog_update_after_update_common timestamp_us=%llu thread_id=%d display=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), (int)display);
 
 	auto di = GetI18NCategory(I18NCat::DIALOG);
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceUpdateDispatchCalls,
+		"[FF1_SAVE_TRACE] event=dialog_update_dispatch timestamp_us=%llu thread_id=%d display=%d io_thread_status=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), (int)display, (int)ioThreadStatus);
 
 	switch (display)
 	{
@@ -1142,6 +1211,10 @@ int PSPSaveDialog::Update(int animSpeed) {
 	if (ReadStatus() == SCE_UTILITY_STATUS_FINISHED || pendingStatus == SCE_UTILITY_STATUS_FINISHED)
 		Memory::Memcpy(requestAddr, &request, request.common.size, "SaveDialogParam");
 	param.ClearSFOCache();
+	FF1_SAVE_TRACE_EVENT(g_ff1TraceUpdateExitCalls,
+		"[FF1_SAVE_TRACE] event=dialog_update_exit timestamp_us=%llu thread_id=%d display=%d status=%d pending_status=%d io_thread_status=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), (int)display, (int)ReadStatus(),
+		(int)pendingStatus, (int)ioThreadStatus);
 	
 	return 0;
 }
