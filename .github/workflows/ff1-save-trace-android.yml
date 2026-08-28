@@ -36,7 +36,7 @@ jobs:
       run: |
         ./b.sh --release --libretro_android ppsspp_libretro
 
-        SO_PATH="$(find build-android -type f -name 'ppsspp_libretro_android.so' -print -quit)"
+        SO_PATH="$(find build -type f -name 'ppsspp_libretro_android.so' -print -quit)"
         test -n "$SO_PATH"
         cp "$SO_PATH" ppsspp_libretro_android_ff1_save_trace.so
 
