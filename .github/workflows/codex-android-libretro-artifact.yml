@@ -51,7 +51,7 @@ jobs:
         NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
       run: |
         set -eu
-        core_path="$(find build-android -type f -name 'ppsspp_libretro_android.so' -print -quit)"
+        core_path="$(find build -type f -name 'ppsspp_libretro_android.so' -print -quit)"
         test -n "$core_path"
         llvm_strip="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
         llvm_readelf="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
