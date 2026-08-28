@@ -40,8 +40,16 @@
 #include "Core/Config.h"
 #include "Core/Reporting.h"
 #include "Core/SaveState.h"
+#include "Core/Dialog/FF1SaveTrace.h"
 
 static double g_lastSaveTime = -1.0;
+
+#if defined(PPSSPP_FF1_SAVE_TRACE)
+static std::atomic<uint64_t> g_ff1TraceInitCalls{0};
+static std::atomic<uint64_t> g_ff1TraceUpdateCalls{0};
+static std::atomic<uint64_t> g_ff1TraceExecuteIOCalls{0};
+static std::atomic<uint64_t> g_ff1TraceExecuteNotVisibleCalls{0};
+#endif
 
 // Actually this should be called on both saves and loads, since just after a load it's safe to exit.
 void ResetSecondsSinceLastGameSave() {
@@ -113,6 +121,7 @@ PSPSaveDialog::~PSPSaveDialog() {
 }
 
 int PSPSaveDialog::Init(int paramAddr) {
+	FF1_SAVE_TRACE_SCOPE("PSPSaveDialog::Init", g_ff1TraceInitCalls, nullptr, "");
 	// Ignore if already running
 	if (GetStatus() != SCE_UTILITY_STATUS_NONE) {
 		ERROR_LOG_REPORT(Log::sceUtility, "A save request is already running, not starting a new one");
@@ -141,6 +150,19 @@ int PSPSaveDialog::Init(int paramAddr) {
 	}
 	Memory::Memcpy(&request, requestAddr, size);
 	Memory::Memcpy(&originalRequest, requestAddr, size);
+
+#if defined(PPSSPP_FF1_SAVE_TRACE)
+	const u32 traceMode = (u32)request.mode;
+	const size_t traceModeCount = sizeof(utilitySavedataTypeNames) / sizeof(utilitySavedataTypeNames[0]);
+	const char *traceModeName = traceMode < traceModeCount ? utilitySavedataTypeNames[traceMode] : "UNKNOWN";
+	const std::string traceGameName(StringViewFromFixedSizeField(request.gameName));
+	const std::string traceSaveName(StringViewFromFixedSizeField(request.saveName));
+	const std::string traceFileName(StringViewFromFixedSizeField(request.fileName));
+	INFO_LOG(Log::sceUtility, "[FF1_SAVE_TRACE] event=init timestamp_us=%llu thread_id=%d mode=%s(%u) gameName=%s saveName=%s fileName=%s request_size=%d request_addr=%08x dataBufSize=%u dataSize=%u focus=%u overwriteMode=%d multiStatus=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), traceModeName, traceMode,
+		traceGameName.c_str(), traceSaveName.c_str(), traceFileName.c_str(), size, requestAddr, (u32)request.dataBufSize,
+		(u32)request.dataSize, (u32)request.focus, (int)request.overwriteMode, (int)request.multiStatus);
+#endif
 
 	// gameName/saveName/fileName become parts of host filesystem paths.
 	// Reject path separators and bare dot components so a crafted request
@@ -343,6 +365,11 @@ int PSPSaveDialog::Init(int paramAddr) {
 	INFO_LOG(Log::sceUtility,"snd0 data : %08x",*((unsigned int*)&param.GetPspParam()->snd0FileData.buf));
 	INFO_LOG(Log::sceUtility,"snd0 size : %u",param.GetPspParam()->snd0FileData.bufSize);*/
 	INFO_LOG(Log::sceUtility, "Return value: %d", retval);
+
+#if defined(PPSSPP_FF1_SAVE_TRACE)
+	INFO_LOG(Log::sceUtility, "[FF1_SAVE_TRACE] event=init_done timestamp_us=%llu thread_id=%d return_value=%d mode=%s(%u) filename_count=%d",
+		(unsigned long long)(time_now_raw() / 1000), GetCurrentThreadIdForDebug(), retval, modeName, mode, param.GetFilenameCount());
+#endif
 	return retval;
 }
 
@@ -661,6 +688,8 @@ void PSPSaveDialog::DisplayMessage(std::string_view text, bool hasYesNo)
 }
 
 int PSPSaveDialog::Update(int animSpeed) {
+	// Do not inspect the request before paramLock: SaveIO may be using it.
+	FF1_SAVE_TRACE_SCOPE("PSPSaveDialog::Update", g_ff1TraceUpdateCalls, nullptr, "");
 	if (GetStatus() != SCE_UTILITY_STATUS_RUNNING)
 		return SCE_ERROR_UTILITY_INVALID_STATUS;
 
@@ -1119,6 +1148,7 @@ int PSPSaveDialog::Update(int animSpeed) {
 
 // It's kinda ugly how this uses the "global" 'display'...
 void PSPSaveDialog::ExecuteIOAction() {
+	FF1_SAVE_TRACE_SCOPE("PSPSaveDialog::ExecuteIOAction", g_ff1TraceExecuteIOCalls, nullptr, "");
 	param.ClearSFOCache();
 	auto &result = param.GetPspParam()->common.result;
 	std::lock_guard<std::mutex> guard(paramLock);
@@ -1164,6 +1194,7 @@ void PSPSaveDialog::ExecuteIOAction() {
 }
 
 void PSPSaveDialog::ExecuteNotVisibleIOAction() {
+	FF1_SAVE_TRACE_SCOPE("PSPSaveDialog::ExecuteNotVisibleIOAction", g_ff1TraceExecuteNotVisibleCalls, param.GetPspParam(), "");
 	param.ClearSFOCache();
 	auto &result = param.GetPspParam()->common.result;
 

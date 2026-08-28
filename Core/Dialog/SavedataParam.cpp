@@ -37,6 +37,7 @@
 #include "Core/ELF/ParamSFO.h"
 #include "Core/HW/MemoryStick.h"
 #include "Core/Util/PPGeDraw.h"
+#include "Core/Dialog/FF1SaveTrace.h"
 
 static const std::string ICON0_FILENAME = "ICON0.PNG";
 static const std::string ICON1_FILENAME = "ICON1.PMF";
@@ -46,6 +47,17 @@ static const std::string SFO_FILENAME = "PARAM.SFO";
 
 static const int FILE_LIST_COUNT_MAX = 99;
 static const u32 FILE_LIST_TOTAL_SIZE = sizeof(SaveSFOFileListEntry) * FILE_LIST_COUNT_MAX;
+
+#if defined(PPSSPP_FF1_SAVE_TRACE)
+static std::atomic<uint64_t> g_ff1TraceSaveCalls{0};
+static std::atomic<uint64_t> g_ff1TraceLoadCalls{0};
+static std::atomic<uint64_t> g_ff1TraceGetSizesCalls{0};
+static std::atomic<uint64_t> g_ff1TraceGetListCalls{0};
+static std::atomic<uint64_t> g_ff1TraceGetFilesListCalls{0};
+static std::atomic<uint64_t> g_ff1TraceGetSizeCalls{0};
+static std::atomic<uint64_t> g_ff1TraceSetPspParamCalls{0};
+static std::atomic<uint64_t> g_ff1TraceGetSaveInfoCalls{0};
+#endif
 
 static const std::string savePath = "ms0:/PSP/SAVEDATA/";
 
@@ -410,6 +422,7 @@ int SavedataParam::DeleteData(SceUtilitySavedataParam* param) {
 }
 
 int SavedataParam::Save(SceUtilitySavedataParam* param, const std::string &saveDirName, bool secureMode) {
+	FF1_SAVE_TRACE_SCOPE("SavedataParam::Save", g_ff1TraceSaveCalls, param, saveDirName);
 	if (!param) {
 		return SCE_UTILITY_SAVEDATA_ERROR_SAVE_MS_NOSPACE;
 	}
@@ -617,6 +630,7 @@ int SavedataParam::Save(SceUtilitySavedataParam* param, const std::string &saveD
 }
 
 int SavedataParam::Load(SceUtilitySavedataParam *param, const std::string &saveDirName, int saveId, bool secureMode) {
+	FF1_SAVE_TRACE_SCOPE("SavedataParam::Load", g_ff1TraceLoadCalls, param, saveDirName);
 	if (!param) {
 		return SCE_UTILITY_SAVEDATA_ERROR_LOAD_NO_DATA;
 	}
@@ -1104,6 +1118,7 @@ inline std::string FmtPspTime(const ScePspDateTime &dt) {
 }
 
 int SavedataParam::GetSizes(SceUtilitySavedataParam *param) {
+	FF1_SAVE_TRACE_SCOPE("SavedataParam::GetSizes", g_ff1TraceGetSizesCalls, param, "");
 	if (!param) {
 		return SCE_UTILITY_SAVEDATA_ERROR_SIZES_NO_DATA;
 	}
@@ -1202,6 +1217,7 @@ int SavedataParam::GetSizes(SceUtilitySavedataParam *param) {
 
 bool SavedataParam::GetList(SceUtilitySavedataParam *param)
 {
+	FF1_SAVE_TRACE_SCOPE("SavedataParam::GetList", g_ff1TraceGetListCalls, param, "");
 	if (!param) {
 		return false;
 	}
@@ -1273,6 +1289,7 @@ bool SavedataParam::GetList(SceUtilitySavedataParam *param)
 }
 
 int SavedataParam::GetFilesList(SceUtilitySavedataParam *param, u32 requestAddr) {
+	FF1_SAVE_TRACE_SCOPE("SavedataParam::GetFilesList", g_ff1TraceGetFilesListCalls, param, "");
 	if (!param)	{
 		return SCE_UTILITY_SAVEDATA_ERROR_RW_BAD_STATUS;
 	}
@@ -1412,6 +1429,7 @@ int SavedataParam::GetFilesList(SceUtilitySavedataParam *param, u32 requestAddr)
 }
 
 bool SavedataParam::GetSize(SceUtilitySavedataParam *param) {
+	FF1_SAVE_TRACE_SCOPE("SavedataParam::GetSize", g_ff1TraceGetSizeCalls, param, "");
 	if (!param) {
 		return false;
 	}
@@ -1504,6 +1522,7 @@ void SavedataParam::Clear() {
 }
 
 int SavedataParam::SetPspParam(SceUtilitySavedataParam *param) {
+	FF1_SAVE_TRACE_SCOPE("SavedataParam::SetPspParam", g_ff1TraceSetPspParamCalls, param, "");
 	pspParam = param;
 	if (!pspParam) {
 		Clear();
@@ -1739,6 +1758,7 @@ void SavedataParam::ClearFileInfo(SaveFileInfo &saveInfo, const std::string &sav
 }
 
 PSPFileInfo SavedataParam::GetSaveInfo(const std::string &saveDir) {
+	FF1_SAVE_TRACE_SCOPE("SavedataParam::GetSaveInfo", g_ff1TraceGetSaveInfoCalls, nullptr, saveDir);
 	PSPFileInfo info = pspFileSystem.GetFileInfo(saveDir);
 	if (info.exists) {
 		info.access = 0777;
